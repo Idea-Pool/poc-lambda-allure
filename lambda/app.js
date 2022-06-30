@@ -1,33 +1,21 @@
-const { S3 } = require('aws-sdk');
 const { execSync } = require('child_process');
 const { join } = require('path');
-const mime = require('mime');
-const { statSync, readdirSync, mkdirSync, writeFileSync, rmdirSync, existsSync, readFileSync } = require('fs');
+const { mkdirSync, rmdirSync, existsSync } = require('fs');
 
 const { BUCKET_NAME } = process.env;
-
-function readDirRecursive(dir) {
-  const files = readdirSync(dir);
-  for (let i = 0; i < files.length; ++i) {
-    const filePath = join(dir, files[i]);
-    if (statSync(filePath).isDirectory()) {
-      const children = readDirRecursive(filePath);
-      files.splice(i, 1, ...children.map(c => join(files[i], c)));
-      i--;
-    }
-  }
-  return files;
-}
 
 function timedCommand(name, command) {
   console.time(name);
   console.debug(name, command);
+  let result = null;
   try {
-    console.log(name, execSync(command).toString());
+    result = execSync(command).toString()
+    console.log(name, result);
   } catch (e) {
     console.error(e.toString());
   }
   console.timeEnd(name);
+  return result;
 }
 
 function ensureEmptyDir(dir) {
@@ -57,50 +45,30 @@ async function handler(event) {
   const inputPrefix = input.includes(RESULT_PREFIX) ? input : join(RESULT_PREFIX, input);
   console.log('CHECKING RESULTS ON S3:', inputPrefix);
 
-  const s3 = new S3();
-  const data = await s3.listObjects({
-    Bucket: BUCKET_NAME,
-    Prefix: inputPrefix,
-  }).promise();
+  const objects = timedCommand(
+    "LIST OBJECTS",
+    `aws s3api list-objects --bucket ${BUCKET_NAME} --prefix ${inputPrefix}`
+  );
 
-  if (!data.Contents.length) {
+  if (!objects) {
     throw new Error('There are not results in S3!');
   }
 
-  for (const file of data.Contents) {
-    if (file.Size > 0) {
-      const filename = file.Key.replace(inputPrefix, '');
-      const tmpfile = join(TMP_RESULTS, filename);
-      console.log('DOWNLOADING FILE:', file.Key);
-      console.debug({ filename, tmpfile, file });
-      const obj = await s3.getObject({
-        Bucket: BUCKET_NAME,
-        Key: file.Key,
-      }).promise();
-      console.log('WRITING:', tmpfile, 'WITH BYTES:', obj.ContentLength);
-      writeFileSync(tmpfile, obj.Body);
-    }
-  }
+  console.log('DOWNLOADING FILES FROM S3', inputPrefix, 'TO', TMP_RESULTS);
+  timedCommand(
+    "DOWNLOAD OBJECTS",
+    `aws s3 sync s3://${join(BUCKET_NAME, inputPrefix)} ${TMP_RESULTS}`
+  );
 
   console.log('GENERATING ALLURE REPORT');
   timedCommand('ALLURE', `${ALLURE} generate -o ${TMP_REPORT} ${TMP_RESULTS}`);
 
   const outputPrefix = join(REPORT_PREFIX, input.replace(RESULT_PREFIX, ''));
   console.log('UPLOADING ALLURE REPORT TO S3:', outputPrefix);
-
-  const reportFiles = readDirRecursive(TMP_REPORT);
-  for (const reportFile of reportFiles) {
-    const filePath = join(TMP_REPORT, reportFile);
-    const key = join(outputPrefix, reportFile);
-    console.log('UPLOADING', filePath, 'TO', key);
-    await s3.putObject({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      Body: readFileSync(filePath),
-      ContentType: mime.getType(filePath),
-
-    }).promise();
-  }
+  timedCommand(
+    "UPLOADING OBJECTS",
+    `aws s3 sync ${TMP_REPORT} s3://${join(BUCKET_NAME, outputPrefix)}`
+  );
 
   return { output: outputPrefix };
 }

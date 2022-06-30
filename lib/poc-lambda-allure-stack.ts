@@ -1,4 +1,4 @@
-import { Duration, RemovalPolicy, Size, Stack, StackProps } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy, Size, Stack, StackProps, CfnOutput } from 'aws-cdk-lib';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -28,5 +28,12 @@ export class PocLambdaAllureStack extends Stack {
     });
 
     bucket.grantReadWrite(dockerFn);
+
+    new CfnOutput(this, 'BucketName', {
+      value: bucket.bucketName,
+    });
+    new CfnOutput(this, 'LambdaName', {
+      value: dockerFn.functionName,
+    });
   }
 }
