@@ -2,6 +2,8 @@
 
 This project is a POC to create a lambda function, that can process **Allure Results** stored in **S3**, generate **Allure Report** of it, and finally saves it back to S3.
 
+![architecture](poc-lambda-allure.drawio.png)
+
 The approach in short:
 1. An S3 bucket is created that
    1. is set up for website hosting
